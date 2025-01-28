@@ -3,8 +3,11 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import r2_score
 
 
-class RandomForestModel:
+from models.base_model import BaseModel
+
+class RandomForestModel(BaseModel):
     def __init__(self):
+        super().__init__()  # BaseModel'in __init__ metodunu çağır
         self.model = RandomForestRegressor(
             n_estimators=100,
             random_state=42
@@ -60,3 +63,21 @@ class RandomForestModel:
             return r2_score(y_true, y_pred) * 100
         except:
             return 0.0
+
+    def save_state(self):
+        """Model durumunu kaydet"""
+        state = super().save_state()  # BaseModel'in save_state metodunu çağır
+        model_state = {
+            'model': self.model if hasattr(self, 'model') else None,
+            'sequence_length': self.sequence_length if hasattr(self, 'sequence_length') else None
+        }
+        return {**state, **model_state}
+
+    def load_state(self, state):
+        """Model durumunu yükle"""
+        super().load_state(state)  # BaseModel'in load_state metodunu çağır
+        if state.get('model') is not None:
+            self.model = state['model']
+        if state.get('sequence_length') is not None:
+            self.sequence_length = state['sequence_length']
+        return self

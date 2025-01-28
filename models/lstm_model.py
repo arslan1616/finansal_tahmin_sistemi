@@ -3,9 +3,12 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.neural_network import MLPRegressor
 from sklearn.metrics import r2_score
 
+from models.base_model import BaseModel
 
-class LSTMModel:
+
+class LSTMModel(BaseModel):
     def __init__(self):
+        super().__init__()  # BaseModel'in __init__ metodunu çağır
         self.model = MLPRegressor(
             hidden_layer_sizes=(100, 50),
             activation='relu',
@@ -13,7 +16,6 @@ class LSTMModel:
             max_iter=1000,
             random_state=42
         )
-        self.scaler = MinMaxScaler(feature_range=(0, 1))
         self.sequence_length = 60
         self.r2_score = 0
 
@@ -82,3 +84,21 @@ class LSTMModel:
             return r2_score(y_true, y_pred) * 100
         except:
             return 0.0
+
+    def save_state(self):
+        """Model durumunu kaydet"""
+        state = super().save_state()  # BaseModel'in save_state metodunu çağır
+        model_state = {
+            'model': self.model if hasattr(self, 'model') else None,
+            'sequence_length': self.sequence_length if hasattr(self, 'sequence_length') else None
+        }
+        return {**state, **model_state}
+
+    def load_state(self, state):
+        """Model durumunu yükle"""
+        super().load_state(state)  # BaseModel'in load_state metodunu çağır
+        if state.get('model') is not None:
+            self.model = state['model']
+        if state.get('sequence_length') is not None:
+            self.sequence_length = state['sequence_length']
+        return self

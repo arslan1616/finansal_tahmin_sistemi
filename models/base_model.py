@@ -5,8 +5,29 @@ from sklearn.preprocessing import MinMaxScaler
 
 
 class BaseModel:
+    def __init__(self):
+        self.scaler = MinMaxScaler()
+
+    def predict_future(self, data, days):
+        raise NotImplementedError("Her model kendi predict_future metodunu implemente etmeli")
+
+    def save_state(self):
+        """Model durumunu kaydet"""
+        return {
+            'scaler_params': {
+                'scale_': self.scaler.scale_ if hasattr(self.scaler, 'scale_') else None,
+                'min_': self.scaler.min_ if hasattr(self.scaler, 'min_') else None,
+            } if hasattr(self, 'scaler') else None
+        }
+
+    def load_state(self, state):
+        """Model durumunu yükle"""
+        if state['scaler_params'] is not None and hasattr(self, 'scaler'):
+            self.scaler.scale_ = state['scaler_params']['scale_']
+            self.scaler.min_ = state['scaler_params']['min_']
+        return self
+
     def calculate_r2_score(self, y_true, y_pred):
-        """R2 skoru hesaplama"""
         ss_res = np.sum((y_true - y_pred) ** 2)
         ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
         r2 = max(0, 1 - (ss_res / (ss_tot + 1e-10)))
@@ -14,7 +35,6 @@ class BaseModel:
 
     def add_technical_features(self, data):
         """Gelişmiş teknik indikatörler"""
-        # Veriyi düzleştir ve Series'e çevir
         if isinstance(data, np.ndarray):
             if len(data.shape) > 1:
                 data = data.flatten()
@@ -55,3 +75,14 @@ class BaseModel:
     def smooth_predictions(self, predictions, window=5):
         """Tahminleri yumuşatma"""
         return pd.Series(predictions).rolling(window=window, min_periods=1, center=True).mean().values
+
+    def prepare_sequence_data(self, data, sequence_length):
+        """Sequence veri hazırlama"""
+        sequences = []
+        targets = []
+
+        for i in range(len(data) - sequence_length):
+            sequences.append(data[i:i + sequence_length])
+            targets.append(data[i + sequence_length])
+
+        return np.array(sequences), np.array(targets)
