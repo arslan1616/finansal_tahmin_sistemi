@@ -31,11 +31,6 @@ class StockDashboard:
         self.models = {}
         self.predictions = {}
         self.future_predictions = {}
-
-        # Klasörleri oluştur
-        self.create_directories()
-
-        # Model cache'i ekle
         self.model_cache = {}
 
         self.settings = {
@@ -82,12 +77,15 @@ class StockDashboard:
             }
         }
 
+        # Gerekli klasörleri oluştur
+        self.create_directories()
+
+        # Layout ve callback'leri ayarla
         self.setup_layout()
         self.setup_callbacks()
 
     def load_config(self):
         try:
-            # Proje kök dizininden config.yaml'ı yükle
             config_path = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
                 "config.yaml"
@@ -106,45 +104,34 @@ class StockDashboard:
             }
 
     def load_data(self, symbol):
-        """Veri yükleme fonksiyonu güncellendi"""
         try:
             end_date = datetime.now()
             start_date = end_date - timedelta(days=2 * 365)
 
-            # Yahoo Finance'dan veriyi çek
             stock = yf.Ticker(symbol)
             df = stock.history(start=start_date, end=end_date)
 
             if len(df) < 100:
                 raise ValueError(f"{symbol} için yeterli veri bulunamadı")
 
-            # Sadece gerekli sütunları al ve NaN değerleri temizle
             self.stock_data = df[['Close']].copy()
             self.stock_data.fillna(method='ffill', inplace=True)
 
-            print(f"Veri yüklendi: {symbol}, Satır sayısı: {len(self.stock_data)}")
             return True
-
         except Exception as e:
             print(f"Veri yükleme hatası ({symbol}): {e}")
             return False
 
-    def prepare_models(self, symbol):
-        """Model hazırlama fonksiyonu"""
+    def prepare_models(self, symbol, force_new=False):
         try:
-            # Cache kontrolü - hem modelleri hem tahminleri kontrol et
-            if symbol in self.model_cache and 'models' in self.model_cache[symbol] and 'predictions' in \
-                    self.model_cache[symbol]:
-                print(f"{symbol} için cache'den modeller ve tahminler yükleniyor...")
+            if not force_new and symbol in self.model_cache:
                 self.models = self.model_cache[symbol]['models'].copy()
                 self.predictions = self.model_cache[symbol]['predictions'].copy()
                 return True
 
-            print(f"{symbol} için yeni modeller hazırlanıyor...")
             self.models = {}
             self.predictions = {}
 
-            # Cache için yeni yapı oluştur
             if symbol not in self.model_cache:
                 self.model_cache[symbol] = {'models': {}, 'predictions': {}}
 
@@ -161,7 +148,6 @@ class StockDashboard:
 
             for model_name, model_class in model_classes.items():
                 try:
-                    print(f"{model_name.upper()} modeli hazırlanıyor...")
                     model = model_class()
                     predictions = model.fit_predict(train_data, test_data, len(test_data))
 
@@ -169,7 +155,6 @@ class StockDashboard:
                     self.predictions[model_name] = predictions
                     self.model_cache[symbol]['models'][model_name] = model
                     self.model_cache[symbol]['predictions'][model_name] = predictions
-
                 except Exception as e:
                     print(f"{model_name.upper()} model hatası: {e}")
                     self.models[model_name] = None
@@ -178,91 +163,25 @@ class StockDashboard:
                     self.model_cache[symbol]['predictions'][model_name] = np.zeros(len(test_data))
 
             return True
-
         except Exception as e:
             print(f"Model hazırlama hatası: {e}")
             return False
 
-    def calculate_potential_returns(self):
-        """Tüm hisseler için potansiyel getirileri hesapla"""
-        potential_returns = []
+    def create_directories(self):
+        directories = [
+            'data/raw',
+            'data/processed',
+            'saved_models'
+        ]
 
-        # Mevcut durumu sakla
-        current_state = {
-            'symbol': self.stock_symbol,
-            'models': self.models.copy() if hasattr(self, 'models') else {},
-            'predictions': self.predictions.copy() if hasattr(self, 'predictions') else {},
-            'stock_data': self.stock_data.copy() if hasattr(self, 'stock_data') else None
-        }
+        for directory in directories:
+            os.makedirs(directory, exist_ok=True)
 
-        try:
-            for symbol in self.available_symbols:
-                try:
-                    # Veriyi yükle
-                    if not self.load_data(symbol):
-                        continue
-
-                    # Modelleri hazırla veya cache'den al
-                    if symbol not in self.model_cache:
-                        if not self.prepare_models(symbol):
-                            continue
-                    else:
-                        self.models = self.model_cache[symbol]['models'].copy()
-                        self.predictions = self.model_cache[symbol]['predictions'].copy()
-
-                    # Son kapanış fiyatı
-                    current_price = self.stock_data['Close'].iloc[-1]
-
-                    # Her model için tahminleri al
-                    predictions = {}
-                    for model_name in ['lstm', 'rf', 'arima']:
-                        if model_name in self.models and self.models[model_name]:
-                            try:
-                                future_pred = self.models[model_name].predict_future(
-                                    self.stock_data['Close'].values,
-                                    30
-                                )
-                                predictions[model_name] = future_pred[-1]
-                            except Exception as e:
-                                print(f"{symbol} {model_name} tahmin hatası: {e}")
-                                continue
-
-                    # Ortalama tahmin
-                    if predictions:
-                        avg_prediction = sum(predictions.values()) / len(predictions)
-                        change_percent = ((avg_prediction - current_price) / current_price) * 100
-
-                        potential_returns.append({
-                            'Hisse': symbol,
-                            'Mevcut Fiyat': f"{current_price:.2f}",
-                            'Tahmin Edilen Fiyat': f"{avg_prediction:.2f}",
-                            'Potansiyel Getiri (%)': f"{change_percent:.2f}",
-                            'Raw_Return': change_percent
-                        })
-
-                except Exception as e:
-                    print(f"{symbol} getiri hesaplama hatası: {e}")
-                    continue
-
-        finally:
-            # Önceki durumu tam olarak geri yükle
-            self.stock_symbol = current_state['symbol']
-            self.models = current_state['models']
-            self.predictions = current_state['predictions']
-            if current_state['stock_data'] is not None:
-                self.stock_data = current_state['stock_data']
-
-            # Aktif hisse için modelleri ve tahminleri yeniden yükle
-            if self.stock_symbol in self.model_cache:
-                self.models = self.model_cache[self.stock_symbol]['models'].copy()
-                self.predictions = self.model_cache[self.stock_symbol]['predictions'].copy()
-
-        return pd.DataFrame(potential_returns)
+        for symbol in self.available_symbols:
+            os.makedirs(f"saved_models/{symbol.replace('.', '_')}", exist_ok=True)
 
     def setup_layout(self):
-        """Layout güncellendi"""
         self.app.layout = html.Div([
-            # Üst kısım - Başlık ve Hisse Seçici
             html.Div([
                 html.H1(
                     id='stock-title',
@@ -277,7 +196,6 @@ class StockDashboard:
                 ),
             ], style={'display': 'flex', 'justifyContent': 'space-between', 'alignItems': 'center'}),
 
-            # Tahmin Aralığı Seçici
             html.Div([
                 html.Label("Tahmin Aralığı:"),
                 dcc.Dropdown(
@@ -292,7 +210,6 @@ class StockDashboard:
                 ),
             ], style={'marginBottom': '20px'}),
 
-            # Model Seçici
             html.Div([
                 html.Label("Tahmin Modeli:"),
                 dcc.Dropdown(
@@ -308,12 +225,9 @@ class StockDashboard:
                 )
             ]),
 
-            # Hata mesajları için gizli div
             html.Div(id='error-message', style={'display': 'none'}),
 
-            # Tab'lar
             dcc.Tabs([
-                # Tahmin Grafikleri Tab'ı
                 dcc.Tab(label='Tahmin Grafikleri', children=[
                     dcc.Graph(
                         id='prediction-chart',
@@ -325,36 +239,47 @@ class StockDashboard:
                     ], style=self.styles['metrics'])
                 ]),
 
-                # Potansiyel Getiri Analizi Tab'ı
-                dcc.Tab(label='Potansiyel Getiri Analizi', children=[
+                dcc.Tab(label='Model Performans Analizi', children=[
                     html.Div([
-                        html.H3("Yükseliş Potansiyeline Göre Hisseler"),
-
-                        # Filtreleme kontrolü
+                        html.H3("Model Performans Analizi"),
                         html.Div([
-                            html.Label("Minimum Getiri Potansiyeli (%)"),
+                            html.Label("Model Seçimi:"),
+                            dcc.Dropdown(
+                                id='performance-model-selector',
+                                options=[
+                                    {'label': 'LSTM', 'value': 'lstm'},
+                                    {'label': 'Random Forest', 'value': 'rf'},
+                                    {'label': 'ARIMA', 'value': 'arima'},
+                                    {'label': 'Tüm Modeller', 'value': 'all'}
+                                ],
+                                value='all',
+                                style={'width': '200px', 'margin': '10px 0'}
+                            )
+                        ]),
+
+                        html.Div([
+                            html.Label("Minimum Model Başarı Oranı (%)"),
                             dcc.Slider(
-                                id='return-filter-slider',
+                                id='model-success-rate-slider',
                                 min=0,
                                 max=100,
                                 step=5,
-                                value=10,
+                                value=60,
                                 marks={i: f'{i}%' for i in range(0, 101, 10)}
                             )
                         ], style={'margin': '20px 0'}),
 
-                        # Yenileme butonu
-                        html.Button('Analizi Güncelle', id='refresh-analysis',
+                        html.Button('Analizi Güncelle', id='refresh-performance-analysis',
                                     style={'margin': '10px 0'}),
 
-                        # Tablo
                         dash_table.DataTable(
-                            id='potential-returns-table',
+                            id='model-performance-table',
                             columns=[
                                 {'name': 'Hisse', 'id': 'Hisse'},
-                                {'name': 'Mevcut Fiyat (TL)', 'id': 'Mevcut Fiyat'},
-                                {'name': 'Tahmin Edilen Fiyat (TL)', 'id': 'Tahmin Edilen Fiyat'},
-                                {'name': 'Potansiyel Getiri (%)', 'id': 'Potansiyel Getiri (%)'}
+                                {'name': 'Model', 'id': 'Model'},
+                                {'name': 'Başarı Oranı (%)', 'id': 'Success_Rate'},
+                                {'name': 'Son Tahmin (TL)', 'id': 'Last_Prediction'},
+                                {'name': 'Potansiyel Getiri (%)', 'id': 'Potential_Return'}
                             ],
                             style_table={'height': '400px', 'overflowY': 'auto'},
                             style_cell={'textAlign': 'center'},
@@ -365,15 +290,9 @@ class StockDashboard:
                             style_data_conditional=[
                                 {
                                     'if': {
-                                        'filter_query': '{Raw_Return} >= 20'
+                                        'filter_query': '{Success_Rate} >= 80'
                                     },
                                     'backgroundColor': 'rgba(0, 255, 0, 0.1)'
-                                },
-                                {
-                                    'if': {
-                                        'filter_query': '{Raw_Return} <= -20'
-                                    },
-                                    'backgroundColor': 'rgba(255, 0, 0, 0.1)'
                                 }
                             ],
                             sort_action='native',
@@ -381,23 +300,8 @@ class StockDashboard:
                         )
                     ], style=self.styles['metrics'])
                 ])
-            ])
+            ]),
         ], style=self.styles['container'])
-
-    def create_directories(self):
-        """Gerekli klasörleri oluştur"""
-        directories = [
-            'data/raw',
-            'data/processed',
-            'saved_models'
-        ]
-
-        for directory in directories:
-            os.makedirs(directory, exist_ok=True)
-
-        # Her hisse için model klasörü
-        for symbol in self.available_symbols:
-            os.makedirs(f"saved_models/{symbol.replace('.', '_')}", exist_ok=True)
 
     def setup_callbacks(self):
         @self.app.callback(
@@ -411,7 +315,6 @@ class StockDashboard:
         )
         def update_charts(selected_stock, selected_model, prediction_days):
             try:
-                # Hisse değiştiyse veriyi yeniden yükle
                 if selected_stock != self.stock_symbol:
                     self.stock_symbol = selected_stock
                     if not self.load_data(selected_stock):
@@ -419,8 +322,6 @@ class StockDashboard:
                     self.prepare_models(selected_stock)
 
                 fig = go.Figure()
-
-                # Gerçek değerler
                 fig.add_trace(go.Scatter(
                     x=self.stock_data.index,
                     y=self.stock_data['Close'],
@@ -439,7 +340,6 @@ class StockDashboard:
 
                 for model_name in models_to_show:
                     if self.models.get(model_name):
-                        # Geçmiş tahminler
                         if len(self.predictions[model_name]) > 0:
                             fig.add_trace(go.Scatter(
                                 x=self.stock_data.index[-len(self.predictions[model_name]):],
@@ -448,7 +348,6 @@ class StockDashboard:
                                 line=dict(color=colors[model_name], width=1.5, dash='dot')
                             ))
 
-                        # Gelecek tahminler
                         try:
                             future_dates = pd.date_range(
                                 start=self.stock_data.index[-1] + pd.Timedelta(days=1),
@@ -461,19 +360,8 @@ class StockDashboard:
                                 prediction_days
                             )
 
-                            # Tahminleri yumuşat
                             last_value = self.stock_data['Close'].values[-1]
-                            if prediction_days > 15:
-                                future_pred = self.smooth_long_term_predictions(
-                                    last_value,
-                                    future_pred,
-                                    prediction_days
-                                )
-                            else:
-                                future_pred = self.smooth_transition(
-                                    last_value,
-                                    future_pred
-                                )
+                            future_pred = self.smooth_predictions(last_value, future_pred, prediction_days)
 
                             fig.add_trace(go.Scatter(
                                 x=future_dates,
@@ -482,7 +370,6 @@ class StockDashboard:
                                 line=dict(color=colors[model_name], width=2)
                             ))
 
-                            # Başarı oranını hesapla
                             r2_score = self.models[model_name].calculate_r2_score(
                                 self.stock_data['Close'].values[-len(self.predictions[model_name]):],
                                 self.predictions[model_name]
@@ -495,7 +382,6 @@ class StockDashboard:
                             model_name, r2_score, colors[model_name]
                         ))
 
-                # Grafik düzeni
                 fig.update_layout(
                     height=600,
                     title=dict(
@@ -533,69 +419,112 @@ class StockDashboard:
                 return {}, [], f"{selected_stock} Hisse Analizi", str(e)
 
         @self.app.callback(
-            Output('potential-returns-table', 'data'),
-            [Input('refresh-analysis', 'n_clicks'),
-             Input('return-filter-slider', 'value')],
+            Output('model-performance-table', 'data'),
+            [Input('refresh-performance-analysis', 'n_clicks'),
+             Input('performance-model-selector', 'value'),
+             Input('model-success-rate-slider', 'value')],
             prevent_initial_call=True
         )
-        def update_returns_table(n_clicks, min_return):
-            # Mevcut durumu sakla
-            current_stock = self.stock_symbol
-            current_models = self.models.copy() if hasattr(self, 'models') else {}
-            current_predictions = self.predictions.copy() if hasattr(self, 'predictions') else {}
+        def update_performance_table(n_clicks, selected_model, min_success_rate):
+            if n_clicks is None:
+                return dash.no_update
+
+            # State'i kaydet
+            original_state = self.save_current_state()
+            performance_data = []
 
             try:
-                # Potansiyel getirileri hesapla
-                df = self.calculate_potential_returns()
+                for symbol in self.available_symbols:
+                    if not self.load_data(symbol):
+                        continue
 
-                # Minimum getiri filtresini uygula
-                filtered_df = df[df['Raw_Return'] >= min_return]
+                    if symbol not in self.model_cache:
+                        if not self.prepare_models(symbol, force_new=True):
+                            continue
 
-                # Sonuçları hazırla
-                results = filtered_df.to_dict('records')
+                    current_price = float(self.stock_data['Close'].iloc[-1])
+                    models_to_check = ['lstm', 'rf', 'arima'] if selected_model == 'all' else [selected_model]
 
-            except Exception as e:
-                print(f"Getiri tablosu güncelleme hatası: {e}")
-                results = []
+                    for model_name in models_to_check:
+                        if model_name in self.model_cache[symbol]['models'] and self.model_cache[symbol]['models'][
+                            model_name]:
+                            try:
+                                model = self.model_cache[symbol]['models'][model_name]
+                                predictions = self.model_cache[symbol]['predictions'][model_name]
+
+                                r2_score = model.calculate_r2_score(
+                                    self.stock_data['Close'].values[-len(predictions):],
+                                    predictions
+                                )
+
+                                if r2_score >= min_success_rate:
+                                    future_pred = model.predict_future(
+                                        self.stock_data['Close'].values,
+                                        30
+                                    )
+                                    future_pred = self.smooth_predictions(
+                                        self.stock_data['Close'].values[-1],
+                                        future_pred
+                                    )
+                                    last_prediction = float(future_pred[-1])
+                                    potential_return = ((last_prediction - current_price) / current_price) * 100
+
+                                    performance_data.append({
+                                        'Hisse': symbol,
+                                        'Model': model_name.upper(),
+                                        'Success_Rate': f"{r2_score:.2f}",
+                                        'Last_Prediction': f"{last_prediction:.2f}",
+                                        'Potential_Return': f"{potential_return:.2f}"
+                                    })
+
+                            except Exception as e:
+                                print(f"{symbol} {model_name} performans hesaplama hatası: {e}")
+                                continue
 
             finally:
-                # Önceki durumu geri yükle
-                self.stock_symbol = current_stock
-                if current_stock in self.model_cache:
-                    self.models = self.model_cache[current_stock]
-                else:
-                    self.models = current_models
-                self.predictions = current_predictions
+                # State'i geri yükle
+                self.restore_state(original_state)
 
-                # Aktif hisse için modelleri yeniden yükle
-                if self.stock_symbol in self.model_cache:
-                    self.prepare_models(self.stock_symbol)
+            performance_data.sort(key=lambda x: float(x['Success_Rate']), reverse=True)
+            return performance_data
 
-            return results
+    def save_current_state(self):
+        return {
+            'symbol': self.stock_symbol,
+            'stock_data': self.stock_data.copy() if hasattr(self, 'stock_data') else None,
+            'models': {k: v.save_state() if v and hasattr(v, 'save_state') else v
+                       for k, v in self.models.items()} if hasattr(self, 'models') else {},
+            'predictions': {k: v.copy() for k, v in self.predictions.items()} if hasattr(self, 'predictions') else {},
+            'cache': {k: {'models': {m: v.save_state() if v and hasattr(v, 'save_state') else v
+                                     for m, v in c['models'].items()},
+                          'predictions': c['predictions'].copy() if 'predictions' in c else {}}
+                      for k, c in self.model_cache.items()}
+        }
 
-    def smooth_transition(self, last_actual, predictions, window=5):
-        """Tahminler için yumuşak geçiş"""
-        smooth_predictions = predictions.copy()
+    def restore_state(self, state):
+        self.stock_symbol = state['symbol']
+        if state['stock_data'] is not None:
+            self.stock_data = state['stock_data'].copy()
+
+        self.models = {k: v.load_state(state['models'][k]) if v and hasattr(v, 'load_state') else v
+                       for k, v in self.models.items()}
+        self.predictions = {k: v.copy() for k, v in state['predictions'].items()}
+
+        self.model_cache = {k: {'models': {m: v.load_state(state['cache'][k]['models'][m])
+        if v and hasattr(v, 'load_state') else v
+                                           for m, v in c['models'].items()},
+                                'predictions': state['cache'][k]['predictions'].copy()
+                                if 'predictions' in state['cache'][k] else {}}
+                            for k, c in state['cache'].items()}
+
+    def smooth_predictions(self, last_actual, predictions, window=5):
+        smooth_pred = predictions.copy()
         for i in range(min(window, len(predictions))):
             weight = (i + 1) / (window + 1)
-            smooth_predictions[i] = last_actual * (1 - weight) + predictions[i] * weight
-        return smooth_predictions
-
-    def smooth_long_term_predictions(self, last_actual, predictions, days):
-        """Uzun vadeli tahminler için yumuşatma"""
-        smooth_predictions = predictions.copy()
-        last_30_days = self.stock_data['Close'].values[-30:]
-        trend = np.mean(np.diff(last_30_days)) / np.mean(last_30_days)
-
-        for i in range(len(predictions)):
-            weight = min(i / 15, 1.0)  # İlk 15 gün için kademeli geçiş
-            trend_prediction = last_actual * (1 + trend * (i + 1))
-            smooth_predictions[i] = predictions[i] * weight + trend_prediction * (1 - weight)
-
-        return smooth_predictions
+            smooth_pred[i] = last_actual * (1 - weight) + predictions[i] * weight
+        return smooth_pred
 
     def create_metric_box(self, model_name, score, color):
-        """Başarı oranı kutusu oluştur"""
         return html.Div([
             html.H4(f"{model_name.upper()}"),
             html.H2(f"%{score:.1f}"),
@@ -611,14 +540,12 @@ class StockDashboard:
         })
 
     def run(self):
-        """Dashboard'ı başlat"""
         print("\nMevcut Hisse Listesi:")
         print("-" * 30)
         for symbol in self.available_symbols:
             print(f"- {symbol}")
         print("\nDashboard başlatılıyor... http://localhost:8050")
 
-        # İlk hisse için verileri yükle
         if self.load_data(self.stock_symbol):
             self.prepare_models(self.stock_symbol)
 

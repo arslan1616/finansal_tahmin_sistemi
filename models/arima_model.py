@@ -6,10 +6,13 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-class ARIMAModel:
+from models.base_model import BaseModel
+
+class ARIMAModel(BaseModel):
     def __init__(self):
+        super().__init__()  # BaseModel'in __init__ metodunu çağır
         self.model = None
-        self.order = (1, 1, 1)  # Basit model parametreleri
+        self.order = (1, 1, 1)
         self.predictions = None
 
     def fit_predict(self, train_data, test_data, prediction_length):
@@ -111,3 +114,21 @@ class ARIMAModel:
             return r2_score(y_true, y_pred) * 100
         except:
             return 0.0
+
+    def save_state(self):
+        """Model durumunu kaydet"""
+        state = super().save_state()  # BaseModel'in save_state metodunu çağır
+        model_state = {
+            'model': self.model if hasattr(self, 'model') else None,
+            'order': self.order if hasattr(self, 'order') else None
+        }
+        return {**state, **model_state}
+
+    def load_state(self, state):
+        """Model durumunu yükle"""
+        super().load_state(state)  # BaseModel'in load_state metodunu çağır
+        if state.get('model') is not None:
+            self.model = state['model']
+        if state.get('order') is not None:
+            self.order = state['order']
+        return self
