@@ -1,0 +1,19 @@
+{
+    "prediction_ranges": {
+        "short": 7,
+        "medium": 15,
+        "long": 30
+    },
+    "stock_symbol": "GARAN.IS",
+    "confidence_interval": 95,
+    "price_alerts": {
+        "upper_limit": null,
+        "lower_limit": null
+    },
+    "update_interval": 5,
+    "models": {
+        "lstm": true,
+        "random_forest": true,
+        "arima": true
+    }
+}

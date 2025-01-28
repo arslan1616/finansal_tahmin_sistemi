@@ -1,0 +1,16 @@
+pandas
+numpy
+matplotlib
+plotly
+scikit-learn
+tensorflow
+statsmodels
+flask
+dash
+yfinance
+websockets
+transformers
+shap
+lime
+sphinx
+redis
